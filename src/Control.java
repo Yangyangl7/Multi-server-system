@@ -166,6 +166,11 @@ public class Control extends Thread {
 							if (userTable.get(name) != null && userTable.get(name).equals(secret) && 
 								name.equals(username)) {
 								con.login();
+								//If the connection is new one, set the identifier of the connection
+								if (!con.getUsername().equals(username))
+									con.setUsername(username);
+								if (!con.getSecret().equals(secret))
+									con.setSecret(secret);
 								
 								if (isRedirect(con, loginMsg)) {
 									System.out.println("Sucessful redirection");
