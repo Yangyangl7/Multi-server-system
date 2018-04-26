@@ -35,11 +35,20 @@ public class Control extends Thread {
 	public Control() {
 		// initialize the connections array
 		connections = new ArrayList<Connection>();
-		// start a listener
 		try {
+			// start a listener
 			listener = new Listener();
+			//try to connect to other servers
 			this.initiateConnection();
+			//server announcement in every 5 seconds
 			start();
+			
+			// the server will print its secret if it starts alone.
+			if (serverTable.size() == 0) {
+				System.out.println("The secret for server connection is: " + 
+								   Settings.getSecret());
+			}
+			
 		} catch (IOException e1) {
 			log.fatal("failed to startup a listening thread: "+e1);
 			System.exit(-1);
@@ -66,13 +75,11 @@ public class Control extends Thread {
 	@SuppressWarnings("unchecked")
 	public synchronized boolean process(Connection con,String msg){
 		try {
-			//System.out.println("123");
 			
 			JSONObject inputJson = (JSONObject) parser.parse(msg);
 			
 			String command = (String) inputJson.get("command");
 			String username = (String) inputJson.get("username");
-			//System.out.println(command);
 			
 			if (command == null) {
 				JSONObject invalidMsg = new JSONObject();
@@ -105,22 +112,22 @@ public class Control extends Thread {
 					//Identifier of the connection. 
 					con.setUsername(username);
 				    con.setSecret(secret);
+				    
 				    //Number of allowed response should be received when the registry is successful
-				    //con.numOfAllow = serverTable.size();
 				    con.setNumOfAllow(serverTable.size());
+				    
 					//valid register, need to broadcast to all servers for further checking
 				    JSONObject LOCK_REQUEST = new JSONObject();
 				    LOCK_REQUEST.put("command", "LOCK_REQUEST");
 				    LOCK_REQUEST.put("username", username);
 				    LOCK_REQUEST.put("secret", secret);
-					
-				    int numOfServer = serverTable.size();
 				    
-				    if (numOfServer > 0) {
-				    	broadCastAllServer(LOCK_REQUEST);
-				    	return false;
-					}
-					else {
+				    // check whether there is only one server or not.
+				    int numOfServer = serverTable.size();
+					if (numOfServer > 0) {
+						broadCastAllServer(LOCK_REQUEST);
+						return false;
+					} else {
 						//Single server model
 						registerMsg.replace("command", "REGISTER_SUCCESS");
 						registerMsg.replace("info", "register success for " + username);
@@ -147,7 +154,6 @@ public class Control extends Thread {
 						loginMsg.put("info", "Logged in as user " + username);
 						
 						if (isRedirect(con, loginMsg)) {
-							System.out.println("Successful redirection");
 							return true;
 						}
 						else {
@@ -156,28 +162,26 @@ public class Control extends Thread {
 						}
 					}
 					else if (!con.isLogin()) {
-						System.out.println("DEBUG FOR elseif");
 						String secret = (String) inputJson.get("secret");
 						loginMsg.put("command", "LOGIN_SUCCESS");
 						loginMsg.put("info", "Logged in as user " + username);
 						
 						for (String name : userTable.keySet()) {
-							System.out.println("DEBUG FOR USERTABLE");
 							if (userTable.get(name) != null && userTable.get(name).equals(secret) && 
 								name.equals(username)) {
 								con.login();
-								//If the connection is new one, set the identifier of the connection
-								if (!con.getUsername().equals(username))
+								
+								if (!con.getUsername().equals(username)) {
 									con.setUsername(username);
-								if (!con.getSecret().equals(secret))
+								}
+								if (!con.getSecret().equals(secret)) {
 									con.setSecret(secret);
+								}
 								
 								if (isRedirect(con, loginMsg)) {
-									System.out.println("Sucessful redirection");
 									return true;
 								}
 								else {
-									System.out.println("No redirection...debug");
 									if (con.writeMsg(loginMsg.toJSONString()))
 										return false;
 								}
@@ -207,10 +211,12 @@ public class Control extends Thread {
 					} 
 					else {
 						String secret = (String) inputJson.get("secret");
-						if (!con.isLogin() || !con.getUsername().equals(username) || (!con.getUsername().equals("anonymous") && !con.getSecret().equals(secret))) {
+						
+						if (!con.isLogin() || !con.getUsername().equals(username) || 
+							(!con.getUsername().equals("anonymous") && !con.getSecret().equals(secret))) {
 							if (!con.isLogin()) {
 								actMsg.put("command", 
-										"AUTHENTICATION_FAIL");
+										"AUTHTENTICATION_FAIL");
 								actMsg.put("info",
 										"user should logged in first");
 								if (con.writeMsg(actMsg.toJSONString()))
@@ -227,15 +233,17 @@ public class Control extends Thread {
 							}
 						}
 						else {
-							//String activityStr = (String) inputJson.get("activity");
 							JSONObject processedMsg = new JSONObject();
 							processedMsg = (JSONObject) inputJson.get("activity");
+
 							processedMsg.put("authenticated_user", username);
 							JSONObject finalMsg = new JSONObject();
 							finalMsg.put("command", "ACTIVITY_BROADCAST");
-							finalMsg.put("activity", processedMsg.toJSONString());
+							finalMsg.put("activity", processedMsg);
+							
 							//broad cast to all client in the server except the one who sends the msg.
 							broadCastAllClient(finalMsg);
+							
 							//broad cast to all server
 							broadCastSomeServer(con, finalMsg);
 							return false;
@@ -243,8 +251,6 @@ public class Control extends Thread {
 					}
 				}
 				else if (command.equals("ACTIVITY_BROADCAST")) {
-					System.out.println("sentsentsentsentsnet");
-					System.out.println("123: " + inputJson.toJSONString());
 					//invalid message
 					if (!con.getSecret().equals(Settings.getSecret())) {
 						JSONObject invalidMsg = new JSONObject();
@@ -255,15 +261,11 @@ public class Control extends Thread {
 					}
 					//valid message
 					else {
-						System.out.println("else else else else else");
 						//Broadcast to all clients connecting to the server
-						
-						String recvMsgStr = (String) inputJson.get("activity");
-						//recvMsg.put("command", "ACTIVITY_BROADCAST");
 						JSONObject recvMsg = new JSONObject();
-						recvMsg = (JSONObject) parser.parse(recvMsgStr);
+						recvMsg = (JSONObject) inputJson.get("activity");
 						JSONObject finalMsgObj = new JSONObject();
-						finalMsgObj.put("activity", recvMsg.toJSONString());
+						finalMsgObj.put("activity", recvMsg);
 						finalMsgObj.put("command", "ACTIVITY_BROADCAST");
 
 						broadCastAllClient(finalMsgObj);
@@ -273,8 +275,6 @@ public class Control extends Thread {
 				}
 				else if (command.equals("AUTHENTICATE")) {
 					String secret = (String) inputJson.get("secret");
-					System.out.println("secret1: " + secret);
-					System.out.println("secret2: " + Settings.getSecret());
 					if (secret == null) {
 						JSONObject authFailMsg = new JSONObject();
 						authFailMsg.put("command", "INVALID_MESSAGE");
@@ -291,7 +291,6 @@ public class Control extends Thread {
 								return true;
 						}
 						else {
-							System.out.println(con.getUsername());
 							//Server who sent the initial authentication message should have a default name
 							if (!con.getUsername().equals("anonymous")) {
 								JSONObject invalidMsg = new JSONObject();
@@ -346,6 +345,7 @@ public class Control extends Thread {
 						lockMsg.put("command", "LOCK_ALLOWED");
 						lockMsg.put("username", username);
 						lockMsg.put("secret", secret);
+						
 						//broadcast LOCK_ALLOWED to all servers connected to the server
 						broadCastAllServer(lockMsg);
 						//broadcast LOCK_REQUEST to all servers except the one who sends the message
@@ -389,8 +389,8 @@ public class Control extends Thread {
 								JSONObject registerFail = new JSONObject();
 								registerFail.put("command", "REGISTER_FAILED");
 								registerFail.put("info", username + " is already in the system");
+								
 								//reset the number of allowed should be received to successfully register a client
-								//con.numOfAllow = serverTable.size();
 								c.setNumOfAllow(serverTable.size());
 								if (c.writeMsg(registerFail.toJSONString()))
 									return true;
@@ -424,14 +424,14 @@ public class Control extends Thread {
 						for (Connection c: this.getConnections()) {
 							if (!c.getSecret().equals(Settings.getSecret()) && c.getUsername().equals(username)) {
 								int nofa = c.getNumOfAllow();
-								c.setNumOfAllow(--nofa);
-								if (c.getNumOfAllow() == 0) {
+								nofa--;
+								c.setNumOfAllow(nofa);
+								if (nofa == 0) {
 									JSONObject registerMsg = new JSONObject();
 									registerMsg.put("command", "REGISTER_SUCCESS");
 									registerMsg.put("info", "reigster success for " + username);
 									userTable.put(username, secret);
 									//reset number of allowed should be received to successfully register a client
-									//con.numOfAllow = serverTable.size() - 1;
 									c.setNumOfAllow(serverTable.size());
 									if (c.writeMsg(registerMsg.toJSONString()))
 										return false;
@@ -463,25 +463,13 @@ public class Control extends Thread {
 						info[2] = (String) inputJson.get("port");
 						serverTable.put(id, info);
 						
-						System.out.print(this.getName() + " :");
-						Iterator<Map.Entry<String, String[]>> printer = serverTable.entrySet().iterator();
-						while (printer.hasNext()) {
-							Map.Entry<String, String[]> entry = printer.next();
-							String seq = entry.getKey();
-							String[] infor = entry.getValue();
-							System.out.print( seq + ":" + infor.toString() + " ");
-						}
-						
-						
-						System.out.println("server debugging server table size is: ......." + serverTable.size());
 						//broadcast server_announce to other servers except the one sent it
 						broadCastSomeServer(con, inputJson);
-						
 						return false;
-						
 					}
 				}
 				else if (command.equals("INVALID_MESSAGE") || command.equals("AUTHENTICATION_FAIL")) {
+					System.out.println(msg);
 					con.closeCon();
 				}
 				else {
@@ -521,9 +509,7 @@ public class Control extends Thread {
 		log.debug("incomming connection: " + Settings.socketAddress(s));
 		Connection c = new Connection(s);
 		connections.add(c);
-		System.out.println(s.getInetAddress() + ":" + s.getLocalPort());
 		return c;
-		
 	}
 	
 	/*
@@ -533,16 +519,18 @@ public class Control extends Thread {
 	public synchronized Connection outgoingConnection(Socket s) throws IOException{
 		log.debug("outgoing connection: " + Settings.socketAddress(s));
 		Connection c = new Connection(s);
+		
+		//Set identifier for outgoing connections
 		c.setUsername(Settings.nextSecret());
 		c.setSecret(Settings.getSecret());
 		connections.add(c);
-		//System.out.println(connections.size());
-		
+	
 		JSONObject authenticateMsg = new JSONObject();
 		authenticateMsg.put("command", "AUTHENTICATE");
 		authenticateMsg.put("secret", Settings.getSecret());
-		if (c.writeMsg(authenticateMsg.toJSONString()))
-			System.out.println("Successfully authentication");
+		if (c.writeMsg(authenticateMsg.toJSONString())) {
+			//System.out.println("Successfully authentication");
+		}
 		
 		return c;
 		
@@ -552,19 +540,21 @@ public class Control extends Thread {
 	@Override
 	public void run(){
 		log.info("using activity interval of "+Settings.getActivityInterval()+" milliseconds");
+		
+		JSONObject serverAnnounce = new JSONObject();
+		serverAnnounce.put("command", "SERVER_ANNOUNCE");
+		serverAnnounce.put("id", ID);
+		serverAnnounce.put("load","0");
+		serverAnnounce.put("hostname", Settings.getLocalHostname());
+		serverAnnounce.put("port", Settings.getLocalPort()+"");
 		while(!term){
 			// do something with 5 second intervals in between
 			int numOfClients = numOfClient();
+			//System.out.println("Connection: " + this.getConnections().size());
 			
-			JSONObject serverAnnounce = new JSONObject();
-			serverAnnounce.put("command", "SERVER_ANNOUNCE");
-			serverAnnounce.put("id", ID);
-			serverAnnounce.put("load", numOfClients+"");
-			serverAnnounce.put("hostname", Settings.getLocalHostname());
-			serverAnnounce.put("port", Settings.getLocalPort()+"");
-			
+			serverAnnounce.replace("load", numOfClients+"");
+				
 			broadCastAllServer(serverAnnounce);
-			
 			try {
 				Thread.sleep(Settings.getActivityInterval());
 			} catch (InterruptedException e) {
@@ -572,7 +562,7 @@ public class Control extends Thread {
 				break;
 			}
 			if(!term){
-				log.debug("doing activity");
+				//log.debug("doing activity");
 				term=doActivity();
 			}
 			
@@ -603,7 +593,6 @@ public class Control extends Thread {
 		
 		//Check load of all connected servers
 		Iterator<Map.Entry<String, String[]>> checker = serverTable.entrySet().iterator();
-		System.out.println(serverTable.size() + " debug...");
 		while (checker.hasNext()) {
 			Map.Entry<String, String[]> entry = checker.next();
 			String[] info = entry.getValue();
@@ -636,20 +625,22 @@ public class Control extends Thread {
 		for (Connection c : this.getConnections()) {
 			if (c.getSecret().equals(Settings.getSecret())) {
 				if (c.writeMsg(msg.toJSONString())) {
-					System.out.println("Successful broadcast to all servers");
+					//System.out.println("Successfully broadcast to one server");
 				}
 			}
 		}
+		//System.out.println("Successfully broadcast to all servers");
 	}
 	
 	private void broadCastSomeServer(Connection con, JSONObject msg) {
 		//broadcast to all server except the server sending it
 		for (Connection c : this.getConnections()) {
 			if (c.getSecret().equals(Settings.getSecret()) && !c.getUsername().equals(con.getUsername())) {
-				if (c.writeMsg(msg.toJSONString()))
-					System.out.println("Successful broadcast to all servers except the one who sent the msg");
+				if (c.writeMsg(msg.toJSONString())) {}
+					//System.out.println("Successfully broadcast to other servers.");
 			}
 		}
+
 	}
 	
 	private void broadCastAllClient(JSONObject msg) {
@@ -657,8 +648,9 @@ public class Control extends Thread {
 		for (Connection c: this.getConnections()) {
 			if (!c.getSecret().equals(Settings.getSecret())) {
 				System.out.println(msg);
-				if (c.writeMsg(msg.toJSONString()))
-					System.out.println("Successful broadcast to all clients");
+				if (c.writeMsg(msg.toJSONString())) {
+					//System.out.println("Successfully broadcast to all clients");
+				}
 			}
 		}
 	}
